@@ -1,0 +1,4 @@
+[project]
+name = "debugmate"
+version = "0.1.0"
+description = "Tools for analyzing and verifying debug information."
