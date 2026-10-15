@@ -1,6 +1,6 @@
 """Provider interfaces and implementations for Debugmate."""
 
-from .base import BaseProvider
 from .gemini import GeminiProvider
+from .base import AIProvider, AnalysisResult
 
 __all__ = ["BaseProvider", "GeminiProvider"]

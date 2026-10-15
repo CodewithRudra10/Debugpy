@@ -1,71 +1,97 @@
-"""Gemini provider implementation for Debugmate."""
 
-from __future__ import annotations
+import json
+import os
 
-from typing import Any, Optional
+from google import genai
 
-from .base import BaseProvider
+from .base import AIProvider, AnalysisResult
 
 
-class GeminiProvider(BaseProvider):
-    """Concrete provider for Google's Gemini models."""
+class GeminiProvider(AIProvider):
+    """Gemini implementation of the DebugMate AI provider."""
 
-    api_key_env_var = "GEMINI_API_KEY"
-    default_model = "gemini-1.5-flash"
-
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None, **kwargs: Any) -> None:
-        super().__init__(api_key=api_key, model=model, **kwargs)
-
-    def _ensure_client(self):
-        if self.client is not None:
-            return self.client
-
-        try:
-            import google.generativeai as genai
-        except ImportError as exc:  # pragma: no cover - depends on optional dependency.
-            raise ImportError(
-                "google-generativeai is required to use GeminiProvider. "
-                "Install it with `pip install google-generativeai`."
-            ) from exc
+    def __init__(self, model: str):
+        self.api_key = os.getenv("GEMINI_API_KEY")
 
         if not self.api_key:
             raise ValueError(
-                "A Gemini API key is required. Set GEMINI_API_KEY or pass api_key=..."
+                "GEMINI_API_KEY environment variable is not set."
             )
 
-        genai.configure(api_key=self.api_key)
-        self.client = genai.GenerativeModel(self.model)
-        return self.client
+        self.client = genai.Client(api_key=self.api_key)
+        self.model = model
 
-    def generate(self, prompt: str, **kwargs: Any) -> str:
-        client = self._ensure_client()
+    def analyze(
+        self,
+        error_type: str,
+        error_message: str,
+        source_code: str,
+        instructions: str,
+    ) -> AnalysisResult:
+        prompt = f"""
+You are DebugMate, a Python debugging assistant.
 
-        request_kwargs = dict(self.config)
-        request_kwargs.update(kwargs)
+Analyze the error using the information below.
 
-        generation_config = request_kwargs.pop("generation_config", None)
-        safety_settings = request_kwargs.pop("safety_settings", None)
+Error type: {error_type}
+Error message: {error_message}
+Source code:
+{source_code}
 
-        if generation_config is not None or safety_settings is not None:
-            response = client.generate_content(
-                prompt,
-                generation_config=generation_config,
-                safety_settings=safety_settings,
-                **request_kwargs,
+Instructions:
+{instructions}
+
+Return ONLY a valid JSON object with these four string fields:
+- error_type
+- cause
+- suggested_fix
+- explanation
+
+Do not execute code or claim that a suggested fix has been tested.
+"""
+
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config={
+                "response_mime_type": "application/json",
+                "temperature": 0.2,
+            },
+        )
+
+        if not response.text:
+            raise ValueError("Gemini returned an empty response.")
+
+        try:
+            result = json.loads(response.text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "Gemini returned an invalid JSON diagnosis."
+            ) from exc
+
+        required_fields = {
+            "error_type",
+            "cause",
+            "suggested_fix",
+            "explanation",
+        }
+
+        if not isinstance(result, dict) or not required_fields.issubset(result):
+            raise ValueError(
+                "Gemini's response is missing required diagnosis fields."
             )
-        else:
-            response = client.generate_content(prompt, **request_kwargs)
 
-        return self._extract_text(response)
+        if not all(
+            isinstance(result[field], str)
+            for field in required_fields
+        ):
+            raise ValueError(
+                "All diagnosis fields must contain strings."
+            )
 
-    def stream(self, prompt: str, **kwargs: Any):
-        client = self._ensure_client()
-        request_kwargs = dict(self.config)
-        request_kwargs.update(kwargs)
-        return client.generate_content(prompt, stream=True, **request_kwargs)
-
-    @staticmethod
-    def _extract_text(response: Any) -> str:
-        if hasattr(response, "text"):
-            return response.text
-        return str(response)
+        return AnalysisResult(
+            error_type=result["error_type"],
+            cause=result["cause"],
+            suggested_fix=result["suggested_fix"],
+            explanation=result["explanation"],
+        )
