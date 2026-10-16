@@ -16,7 +16,7 @@
 
 from debugmate.providers.gemini import GeminiProvider
 
-provider = GeminiProvider(model="gemini-2.5-flash-lite")
+provider = GeminiProvider(model="gemini-3.5-flash-lite")
 
 result = provider.analyze(
     error_type="IndexError",
