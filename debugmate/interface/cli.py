@@ -1,6 +1,11 @@
 
-import subprocess
 import argparse
+import subprocess
+
+from debugmate.core.parser import parse_traceback
+from debugmate.core.locator import locate_error
+from debugmate.core.analyzer import analyze_error
+from debugmate.providers import GeminiProvider
 
 
 def main():
@@ -44,7 +49,36 @@ def main():
 
             if result.returncode != 0:
                 print("Program failed:")
-                print(result.stderr)
+
+                try:
+                    parsed_error = parse_traceback(result.stderr)
+                    located_error = locate_error(parsed_error)
+
+                    provider = GeminiProvider(
+                        model="gemini-3.5-flash-lite"
+                    )
+
+                    diagnosis = analyze_error(
+                        parsed_error=parsed_error,
+                        located_error=located_error,
+                        provider=provider,
+                    )
+
+                    print("\n--- DebugMate Diagnosis ---")
+                    print(f"Error type: {diagnosis.error_type}")
+                    print(f"Cause: {diagnosis.cause}")
+                    print(f"Suggested fix: {diagnosis.suggested_fix}")
+                    print(f"Explanation: {diagnosis.explanation}")
+
+                except (ValueError, IndexError, FileNotFoundError) as error:
+                    print("DebugMate couldn't analyze the traceback.")
+                    print(f"Details: {error}")
+                    print(result.stderr)
+
+                except Exception as error:
+                    print("DebugMate's AI analysis failed.")
+                    print(f"Details: {error}")
+                    print(result.stderr)
 
             else:
                 print("Program completed successfully.")
