@@ -1,4 +1,4 @@
-numbers = [10, 20, 30]
-print("Starting")
-print("Testing")
-print(numbers[5])
+print("Hello from DebugMate!")
+
+total = 10 + 20
+print(total)

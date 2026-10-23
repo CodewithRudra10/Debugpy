@@ -1,6 +1,7 @@
 
 import argparse
 import subprocess
+import sys
 
 from debugmate.core.parser import parse_traceback
 from debugmate.core.locator import locate_error
@@ -34,60 +35,80 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "run":
+    if args.command != "run":
+        parser.print_help()
+        return
+
+    try:
+        result = subprocess.run(
+            [sys.executable, args.file],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+
+        if result.stdout:
+            print(result.stdout, end="")
+
+        if result.returncode == 0:
+            print("Program completed successfully.")
+            return
+
+        print("Program failed:")
+
+        stderr = result.stderr or ""
+
+        if (
+            "can't open file" in stderr.lower()
+            or "no such file or directory" in stderr.lower()
+        ):
+            print("Error: The specified Python file could not be found.")
+            print(stderr.strip())
+            return
+
         try:
-            result = subprocess.run(
-                ["python", args.file],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                check=False,
+            parsed_error = parse_traceback(stderr)
+            located_error = locate_error(parsed_error)
+
+        except (ValueError, IndexError, FileNotFoundError) as error:
+            print("DebugMate couldn't analyze the traceback.")
+            print(f"Details: {error}")
+
+            if stderr:
+                print(stderr)
+
+            return
+
+        try:
+            provider = GeminiProvider(
+                model="gemini-3.5-flash-lite"
             )
 
-            if result.stdout:
-                print(result.stdout, end="")
+            diagnosis = analyze_error(
+                parsed_error=parsed_error,
+                located_error=located_error,
+                provider=provider,
+            )
 
-            if result.returncode != 0:
-                print("Program failed:")
+            print("\n--- DebugMate Diagnosis ---")
+            print(f"Error type: {diagnosis.error_type}")
+            print(f"Cause: {diagnosis.cause}")
+            print(f"Suggested fix: {diagnosis.suggested_fix}")
+            print(f"Explanation: {diagnosis.explanation}")
 
-                try:
-                    parsed_error = parse_traceback(result.stderr)
-                    located_error = locate_error(parsed_error)
+        except Exception as error:
+            print("DebugMate's AI analysis failed.")
+            print(f"Details: {error}")
 
-                    provider = GeminiProvider(
-                        model="gemini-3.5-flash-lite"
-                    )
+            if stderr:
+                print(stderr)
 
-                    diagnosis = analyze_error(
-                        parsed_error=parsed_error,
-                        located_error=located_error,
-                        provider=provider,
-                    )
+    except subprocess.TimeoutExpired:
+        print("Error: Program exceeded the 30-second timeout.")
 
-                    print("\n--- DebugMate Diagnosis ---")
-                    print(f"Error type: {diagnosis.error_type}")
-                    print(f"Cause: {diagnosis.cause}")
-                    print(f"Suggested fix: {diagnosis.suggested_fix}")
-                    print(f"Explanation: {diagnosis.explanation}")
-
-                except (ValueError, IndexError, FileNotFoundError) as error:
-                    print("DebugMate couldn't analyze the traceback.")
-                    print(f"Details: {error}")
-                    print(result.stderr)
-
-                except Exception as error:
-                    print("DebugMate's AI analysis failed.")
-                    print(f"Details: {error}")
-                    print(result.stderr)
-
-            else:
-                print("Program completed successfully.")
-
-        except subprocess.TimeoutExpired:
-            print("Error: Program exceeded the 30-second timeout.")
-
-        except FileNotFoundError:
-            print("Error: Python executable or file could not be found.")
+    except FileNotFoundError:
+        print("Error: Python executable or file could not be found.")
 
 
 if __name__ == "__main__":

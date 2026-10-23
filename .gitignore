@@ -1,0 +1,11 @@
+
+.venv/
+__pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
+.pytest_cache/
+test_missing_key.py
+test_timeout.py
+*.egg-info/
